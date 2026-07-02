@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.work.WorkManager
+import com.manoli.moodmate.service.StorageService
 import com.manoli.moodmate.ui.theme.ThemeManager
 import com.manoli.moodmate.util.scheduleReminderAt
 
@@ -34,6 +35,7 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("moodmate_prefs", Context.MODE_PRIVATE)
+    val storage = StorageService(context)
 
     var reminderEnabled by remember { mutableStateOf(prefs.getBoolean("reminder_enabled", true)) }
     val savedHour = prefs.getInt("reminder_hour", 20)
@@ -67,9 +69,7 @@ fun SettingsScreen(
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
             title = { Text("Elige la hora del recordatorio") },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { TimePicker(state = timePickerState) }
-            },
+            text = { Column(horizontalAlignment = Alignment.CenterHorizontally) { TimePicker(state = timePickerState) } },
             confirmButton = {
                 TextButton(onClick = {
                     selectedHour = timePickerState.hour
@@ -85,6 +85,29 @@ fun SettingsScreen(
     }
 
     var lockEnabled by remember { mutableStateOf(prefs.getBoolean("lock_enabled", true)) }
+
+    // Diálogo de reinicio de datos
+    var showResetDialog by remember { mutableStateOf(false) }
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reiniciar todos los datos") },
+            text = { Text("¿Estás seguro? Se eliminarán todas tus entradas, ejercicios y preferencias. Esta acción no se puede deshacer.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    storage.deleteAllData()
+                    prefs.edit().clear().apply()
+                    // Reiniciar la app
+                    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+                    context.startActivity(intent)
+                    (context as? android.app.Activity)?.finish()
+                }) { Text("Sí, eliminar todo") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showResetDialog = false }) { Text("Cancelar") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -131,13 +154,12 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(8.dp))
 
-                // Botón para probar el recordatorio
                 Button(
                     onClick = {
                         if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
-                            scheduleReminderAt(context, -1, -1) // señal para programar en 1 minuto
+                            scheduleReminderAt(context, -1, -1)
                             Toast.makeText(context, "Recibirás una notificación de prueba en aproximadamente 1 minuto", Toast.LENGTH_SHORT).show()
                         }
                     },
@@ -207,6 +229,11 @@ fun SettingsScreen(
                     title = "Acerca de",
                     subtitle = "ℹ️",
                     onClick = onNavigateToAbout
+                )
+                SettingRow(
+                    title = "Reiniciar todos los datos",
+                    subtitle = "⚠️",
+                    onClick = { showResetDialog = true }
                 )
             }
         }

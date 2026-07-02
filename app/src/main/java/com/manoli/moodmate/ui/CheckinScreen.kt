@@ -5,9 +5,11 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Check
@@ -74,6 +76,8 @@ fun CheckinScreen(
     // Degradado fijo para el botón (azul a morado)
     val gradientColors = listOf(Color(0xFF4A90D9), Color(0xFF7B68EE))
 
+    val scrollState = rememberScrollState()  // ← añadir estado de scroll
+
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
             topBar = {
@@ -101,7 +105,9 @@ fun CheckinScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(backgroundColor)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .imePadding()
+                    .verticalScroll(scrollState),   // ← hacer que el contenido sea desplazable
                 horizontalAlignment = Alignment.Start
             ) {
                 // Tarjeta de emociones
@@ -308,6 +314,9 @@ fun CheckinScreen(
                         }
                     }
                 }
+
+                // Espacio extra al final para que el botón no quede pegado
+                Spacer(modifier = Modifier.height(32.dp))
             }
         }
 

@@ -1,7 +1,10 @@
 package com.manoli.moodmate.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -26,7 +29,7 @@ import com.manoli.moodmate.service.StorageService
 import java.text.SimpleDateFormat
 import java.util.*
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun HistoryScreen(onBack: () -> Unit) {
     val context = LocalContext.current
@@ -40,6 +43,13 @@ fun HistoryScreen(onBack: () -> Unit) {
     var filterMood by remember { mutableStateOf<Mood?>(null) }
     var filterStartDate by remember { mutableStateOf<Date?>(null) }
     var filterEndDate by remember { mutableStateOf<Date?>(null) }
+
+    // Estado para editar entrada
+    var editingEntry by remember { mutableStateOf<Entry?>(null) }
+    var editMood by remember { mutableStateOf(Mood.NEUTRAL) }
+    var editEnergy by remember { mutableFloatStateOf(5f) }
+    var editStress by remember { mutableFloatStateOf(5f) }
+    var editNote by remember { mutableStateOf("") }
 
     val allEntriesForMonth = remember(currentYear, currentMonth) {
         storage.getEntriesForMonth(currentYear, currentMonth)
@@ -67,6 +77,96 @@ fun HistoryScreen(onBack: () -> Unit) {
         }
     }
 
+    // Diálogo para eliminar
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var entryToDelete by remember { mutableStateOf<Entry?>(null) }
+
+    // Diálogo de confirmación de eliminación
+    if (showDeleteDialog && entryToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar entrada") },
+            text = { Text("¿Seguro que quieres eliminar este check-in? Esta acción no se puede deshacer.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    entryToDelete?.let { storage.deleteEntry(it.id) }
+                    showDeleteDialog = false
+                    entryToDelete = null
+                    selectedDate = selectedDate // refresca la lista
+                    Toast.makeText(context, "Entrada eliminada", Toast.LENGTH_SHORT).show()
+                }) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    entryToDelete = null
+                }) { Text("Cancelar") }
+            }
+        )
+    }
+
+    // Diálogo de edición
+    if (editingEntry != null) {
+        AlertDialog(
+            onDismissRequest = { editingEntry = null },
+            title = { Text("Editar check-in") },
+            text = {
+                Column {
+                    Row(horizontalArrangement = Arrangement.SpaceEvenly, modifier = Modifier.fillMaxWidth()) {
+                        Mood.entries.forEach { mood ->
+                            val emoji = when (mood) {
+                                Mood.GREAT -> "😄"
+                                Mood.GOOD -> "🙂"
+                                Mood.NEUTRAL -> "😐"
+                                Mood.LOW -> "😔"
+                                Mood.AWFUL -> "😢"
+                            }
+                            FilterChip(
+                                selected = editMood == mood,
+                                onClick = { editMood = mood },
+                                label = { Text(emoji) },
+                                modifier = Modifier.size(44.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Energía: ${editEnergy.toInt()}")
+                    Slider(value = editEnergy, onValueChange = { editEnergy = it }, valueRange = 1f..10f, steps = 8)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Estrés: ${editStress.toInt()}")
+                    Slider(value = editStress, onValueChange = { editStress = it }, valueRange = 1f..10f, steps = 8)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = editNote,
+                        onValueChange = { editNote = it },
+                        label = { Text("Nota") },
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 2
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    editingEntry?.let { entry ->
+                        val updated = entry.copy(
+                            mood = editMood,
+                            energy = editEnergy.toInt(),
+                            stress = editStress.toInt(),
+                            noteText = editNote.ifBlank { null }
+                        )
+                        storage.updateEntry(updated)
+                        editingEntry = null
+                        selectedDate = selectedDate // refresca
+                        Toast.makeText(context, "Check-in actualizado", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("Guardar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingEntry = null }) { Text("Cancelar") }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -77,23 +177,13 @@ fun HistoryScreen(onBack: () -> Unit) {
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = { showFilters = !showFilters }
-                    ) {
+                    TextButton(onClick = { showFilters = !showFilters }) {
                         if (showFilters) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Cerrar")
                         } else {
-                            Icon(
-                                Icons.Default.FilterList,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            Icon(Icons.Default.FilterList, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Filtrar")
                         }
@@ -256,7 +346,37 @@ fun HistoryScreen(onBack: () -> Unit) {
                         } else {
                             LazyColumn {
                                 items(filteredDayEntries) { entry ->
-                                    EntryCard(entry)
+                                    var showMenu by remember { mutableStateOf(false) }
+                                    Box {
+                                        EntryCard(
+                                            entry = entry,
+                                            onLongClick = { showMenu = true }
+                                        )
+                                        DropdownMenu(
+                                            expanded = showMenu,
+                                            onDismissRequest = { showMenu = false }
+                                        ) {
+                                            DropdownMenuItem(
+                                                text = { Text("Editar") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    editingEntry = entry
+                                                    editMood = entry.mood
+                                                    editEnergy = entry.energy.toFloat()
+                                                    editStress = entry.stress.toFloat()
+                                                    editNote = entry.noteText ?: ""
+                                                }
+                                            )
+                                            DropdownMenuItem(
+                                                text = { Text("Eliminar") },
+                                                onClick = {
+                                                    showMenu = false
+                                                    entryToDelete = entry
+                                                    showDeleteDialog = true
+                                                }
+                                            )
+                                        }
+                                    }
                                     Spacer(modifier = Modifier.height(8.dp))
                                 }
                             }
@@ -374,11 +494,17 @@ fun FilterPanel(
     }
 }
 
-// ── Componente de tarjeta de entrada ─────────────────────
+// ── Tarjeta de entrada ──
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun EntryCard(entry: Entry) {
+fun EntryCard(entry: Entry, onLongClick: () -> Unit = {}) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(
+                onClick = { /* clic normal */ },
+                onLongClick = onLongClick
+            ),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
@@ -395,7 +521,7 @@ fun EntryCard(entry: Entry) {
     }
 }
 
-// ── Funciones auxiliares ─────────────────────────────────
+// ── Funciones auxiliares ──
 fun moodColor(mood: Mood): Color = when (mood) {
     Mood.GREAT -> Color(0xFF4CAF50)
     Mood.GOOD -> Color(0xFF8BC34A)

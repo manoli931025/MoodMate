@@ -6,7 +6,6 @@ import com.google.gson.reflect.TypeToken
 import com.manoli.moodmate.model.Entry
 import java.io.File
 import java.text.SimpleDateFormat
-import java.util.Locale
 import java.util.*
 
 class StorageService(private val context: Context) {
@@ -62,6 +61,26 @@ class StorageService(private val context: Context) {
         return loadEntries().filter { entry ->
             entry.timestamp >= startDate && entry.timestamp <= today
         }
+    }
+
+    fun deleteEntry(entryId: String) {
+        val entries = loadEntries()
+        entries.removeAll { it.id == entryId }
+        saveEntries(entries)
+    }
+
+    fun updateEntry(updatedEntry: Entry) {
+        val entries = loadEntries()
+        val index = entries.indexOfFirst { it.id == updatedEntry.id }
+        if (index != -1) {
+            entries[index] = updatedEntry
+            saveEntries(entries)
+        }
+    }
+
+    fun deleteAllData() {
+        val file = File(context.filesDir, fileName)
+        if (file.exists()) file.delete()
     }
 
     fun exportToCsv(): String {
