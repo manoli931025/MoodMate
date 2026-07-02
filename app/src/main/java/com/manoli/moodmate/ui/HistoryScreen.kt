@@ -1,9 +1,9 @@
 package com.manoli.moodmate.ui
 
-import androidx.compose.foundation.clickable
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,6 +27,10 @@ import com.manoli.moodmate.model.Entry
 import com.manoli.moodmate.model.Mood
 import com.manoli.moodmate.service.StorageService
 import java.text.SimpleDateFormat
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -41,8 +45,8 @@ fun HistoryScreen(onBack: () -> Unit) {
 
     var showFilters by remember { mutableStateOf(false) }
     var filterMood by remember { mutableStateOf<Mood?>(null) }
-    var filterStartDate by remember { mutableStateOf<Date?>(null) }
-    var filterEndDate by remember { mutableStateOf<Date?>(null) }
+    var filterStartDate by remember { mutableStateOf<LocalDate?>(null) }
+    var filterEndDate by remember { mutableStateOf<LocalDate?>(null) }
 
     // Estado para editar entrada
     var editingEntry by remember { mutableStateOf<Entry?>(null) }
@@ -55,12 +59,18 @@ fun HistoryScreen(onBack: () -> Unit) {
         storage.getEntriesForMonth(currentYear, currentMonth)
     }
 
+    // Filtrado usando LocalDate (sin problemas de zona horaria)
     val filteredEntries = remember(allEntriesForMonth, filterMood, filterStartDate, filterEndDate) {
+        val start = filterStartDate
+        val end = filterEndDate
         allEntriesForMonth.filter { entry ->
             val matchesMood = filterMood == null || entry.mood == filterMood
-            val afterStart = filterStartDate == null || !entry.timestamp.before(filterStartDate)
-            val beforeEnd = filterEndDate == null || !entry.timestamp.after(filterEndDate)
-            matchesMood && afterStart && beforeEnd
+            val entryDate = Instant.ofEpochMilli(entry.timestamp.time)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+            val startOk = start == null || !entryDate.isBefore(start)
+            val endOk = end == null || !entryDate.isAfter(end)
+            matchesMood && startOk && endOk
         }
     }
 
@@ -322,11 +332,20 @@ fun HistoryScreen(onBack: () -> Unit) {
             // Entradas del día seleccionado
             if (selectedDate != null) {
                 val entries = storage.getEntriesByDate(selectedDate!!)
-                val filteredDayEntries = entries.filter { entry ->
-                    val matchesMood = filterMood == null || entry.mood == filterMood
-                    val afterStart = filterStartDate == null || !entry.timestamp.before(filterStartDate)
-                    val beforeEnd = filterEndDate == null || !entry.timestamp.after(filterEndDate)
-                    matchesMood && afterStart && beforeEnd
+
+                // Filtrado también para las entradas del día
+                val filteredDayEntries = remember(entries, filterMood, filterStartDate, filterEndDate) {
+                    val start = filterStartDate
+                    val end = filterEndDate
+                    entries.filter { entry ->
+                        val matchesMood = filterMood == null || entry.mood == filterMood
+                        val entryDate = Instant.ofEpochMilli(entry.timestamp.time)
+                            .atZone(ZoneId.systemDefault())
+                            .toLocalDate()
+                        val startOk = start == null || !entryDate.isBefore(start)
+                        val endOk = end == null || !entryDate.isAfter(end)
+                        matchesMood && startOk && endOk
+                    }
                 }
 
                 Card(
@@ -388,31 +407,52 @@ fun HistoryScreen(onBack: () -> Unit) {
     }
 }
 
-// ── Panel de filtros ──
+// ── Panel de filtros (CONVERSIÓN CORRECTA USANDO CALENDAR) ──
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilterPanel(
     filterMood: Mood?,
     onMoodSelected: (Mood?) -> Unit,
-    filterStartDate: Date?,
-    onStartDateSelected: (Date?) -> Unit,
-    filterEndDate: Date?,
-    onEndDateSelected: (Date?) -> Unit,
+    filterStartDate: LocalDate?,
+    onStartDateSelected: (LocalDate?) -> Unit,
+    filterEndDate: LocalDate?,
+    onEndDateSelected: (LocalDate?) -> Unit,
     onClearFilters: () -> Unit
 ) {
     var showStartDatePicker by remember { mutableStateOf(false) }
     var showEndDatePicker by remember { mutableStateOf(false) }
 
+    // Valor inicial para el DatePicker: hoy en la zona local
+    val todayMillis = remember {
+        val cal = Calendar.getInstance()
+        cal.set(Calendar.HOUR_OF_DAY, 0)
+        cal.set(Calendar.MINUTE, 0)
+        cal.set(Calendar.SECOND, 0)
+        cal.set(Calendar.MILLISECOND, 0)
+        cal.timeInMillis
+    }
+
     if (showStartDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = filterStartDate?.time ?: System.currentTimeMillis()
+            initialSelectedDateMillis = filterStartDate?.let { date ->
+                // Convertir LocalDate a milisegundos UTC para el DatePicker
+                date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } ?: todayMillis
         )
         DatePickerDialog(
             onDismissRequest = { showStartDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        onStartDateSelected(Date(millis))
+                        // Usar Calendar para extraer la fecha local exacta
+                        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                        cal.timeInMillis = millis
+                        val localDate = LocalDate.of(
+                            cal.get(Calendar.YEAR),
+                            cal.get(Calendar.MONTH) + 1,
+                            cal.get(Calendar.DAY_OF_MONTH)
+                        )
+                        onStartDateSelected(localDate)
                     }
                     showStartDatePicker = false
                 }) { Text("Aceptar") }
@@ -423,14 +463,23 @@ fun FilterPanel(
 
     if (showEndDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = filterEndDate?.time ?: System.currentTimeMillis()
+            initialSelectedDateMillis = filterEndDate?.let { date ->
+                date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            } ?: todayMillis
         )
         DatePickerDialog(
             onDismissRequest = { showEndDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        onEndDateSelected(Date(millis))
+                        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
+                        cal.timeInMillis = millis
+                        val localDate = LocalDate.of(
+                            cal.get(Calendar.YEAR),
+                            cal.get(Calendar.MONTH) + 1,
+                            cal.get(Calendar.DAY_OF_MONTH)
+                        )
+                        onEndDateSelected(localDate)
                     }
                     showEndDatePicker = false
                 }) { Text("Aceptar") }
@@ -470,9 +519,7 @@ fun FilterPanel(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = filterStartDate?.let {
-                            SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(it)
-                        } ?: "Desde"
+                        text = filterStartDate?.format(DateTimeFormatter.ofPattern("dd/MM/yy")) ?: "Desde"
                     )
                 }
                 OutlinedButton(
@@ -480,9 +527,7 @@ fun FilterPanel(
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        text = filterEndDate?.let {
-                            SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(it)
-                        } ?: "Hasta"
+                        text = filterEndDate?.format(DateTimeFormatter.ofPattern("dd/MM/yy")) ?: "Hasta"
                     )
                 }
             }
