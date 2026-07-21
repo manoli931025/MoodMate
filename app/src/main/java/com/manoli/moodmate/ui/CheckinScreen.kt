@@ -1,5 +1,7 @@
 package com.manoli.moodmate.ui
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
@@ -35,6 +37,7 @@ import com.manoli.moodmate.R
 import com.manoli.moodmate.model.Entry
 import com.manoli.moodmate.model.Mood
 import com.manoli.moodmate.service.StorageService
+import com.manoli.moodmate.widget.MoodMateWidgetProvider
 import kotlinx.coroutines.delay
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -315,6 +318,18 @@ fun CheckinScreen(
                             sleepHours = sleepHours
                         )
                         storage.addEntry(entry)
+
+                        // Actualizar widget si existe
+                        try {
+                            val widgetManager = AppWidgetManager.getInstance(context)
+                            val widgetIds = widgetManager.getAppWidgetIds(
+                                ComponentName(context, MoodMateWidgetProvider::class.java)
+                            )
+                            if (widgetIds.isNotEmpty()) {
+                                MoodMateWidgetProvider.updateWidget(context, widgetManager, widgetIds[0])
+                            }
+                        } catch (_: Exception) { }
+
                         Toast.makeText(context, "Check-in guardado", Toast.LENGTH_SHORT).show()
                         showSuccess = true
                     },
