@@ -1,5 +1,6 @@
 package com.manoli.moodmate.ui
 
+import android.content.Context
 import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -14,6 +15,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ShowChart
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Settings
@@ -30,14 +32,16 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.manoli.moodmate.R
 import com.manoli.moodmate.model.Entry
 import com.manoli.moodmate.model.Mood
 import com.manoli.moodmate.service.StorageService
 import kotlinx.coroutines.delay
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.util.Calendar
 import java.util.Date
 import java.util.UUID
-import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Star
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -70,16 +74,16 @@ fun CheckinScreen(
         }
     }
 
-    // Colores del tema (se adaptan a claro/oscuro)
+    // Colores del tema
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
     val surfaceColor = MaterialTheme.colorScheme.surface
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
     val backgroundColor = MaterialTheme.colorScheme.background
-    // Degradado fijo para el botón (azul a morado)
     val gradientColors = listOf(Color(0xFF4A90D9), Color(0xFF7B68EE))
 
-    val scrollState = rememberScrollState()  // ← añadir estado de scroll
+    // ── Cita diaria ──
+    val quote = remember { getDailyQuote(context) }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -88,7 +92,7 @@ fun CheckinScreen(
                     title = { Text("MoodMate", fontWeight = FontWeight.SemiBold) },
                     actions = {
                         IconButton(onClick = onNavigateToAchievements) {
-                            Icon(Icons.Default.EmojiEvents, contentDescription = "Logros")  // o Icons.Default.Star
+                            Icon(Icons.Default.EmojiEvents, contentDescription = "Logros")
                         }
                         IconButton(onClick = onNavigateToExercises) {
                             Icon(Icons.Default.Favorite, contentDescription = "Ejercicios")
@@ -111,11 +115,37 @@ fun CheckinScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(backgroundColor)
-                    .padding(16.dp)
-                    .imePadding()
-                    .verticalScroll(scrollState),   // ← hacer que el contenido sea desplazable
+                    .imePadding()                  // ajusta el contenido cuando el teclado aparece
+                    .verticalScroll(rememberScrollState())   // permite hacer scroll para ver los campos
+                    .padding(16.dp),
                 horizontalAlignment = Alignment.Start
             ) {
+                // Cita diaria
+                if (quote.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = primaryColor.copy(alpha = 0.1f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("💬", style = MaterialTheme.typography.headlineSmall)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = quote,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
                 // Tarjeta de emociones
                 Card(
                     modifier = Modifier
@@ -321,7 +351,7 @@ fun CheckinScreen(
                     }
                 }
 
-                // Espacio extra al final para que el botón no quede pegado
+                // Espacio extra al final para que el botón no quede pegado al borde
                 Spacer(modifier = Modifier.height(32.dp))
             }
         }
@@ -355,5 +385,21 @@ fun CheckinScreen(
                 }
             }
         }
+    }
+}
+
+// ── Función para obtener la cita del día ──
+fun getDailyQuote(context: Context): String {
+    val calendar = Calendar.getInstance()
+    val dayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
+    try {
+        val reader = BufferedReader(InputStreamReader(context.resources.openRawResource(R.raw.quotes)))
+        val quotes = reader.readLines().filter { it.isNotBlank() }
+        reader.close()
+        if (quotes.isEmpty()) return ""
+        val index = dayOfYear % quotes.size
+        return quotes[index]
+    } catch (e: Exception) {
+        return "“Vive el momento.”"
     }
 }
