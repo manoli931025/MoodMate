@@ -6,4 +6,9 @@ import androidx.compose.runtime.setValue
 
 object ThemeManager {
     var isDark by mutableStateOf(false)
+    var currentScheme by mutableStateOf(ThemeScheme.CLASSIC)
+}
+
+enum class ThemeScheme {
+    CLASSIC, NATURE, OCEAN, LAVENDER, SUNSET, CARBON
 }

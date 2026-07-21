@@ -26,7 +26,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -74,13 +73,12 @@ fun CheckinScreen(
         }
     }
 
-    // Colores del tema
+    // Colores del tema (se adaptan a claro/oscuro y al esquema seleccionado)
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
     val surfaceColor = MaterialTheme.colorScheme.surface
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface
     val backgroundColor = MaterialTheme.colorScheme.background
-    val gradientColors = listOf(Color(0xFF4A90D9), Color(0xFF7B68EE))
 
     // ── Cita diaria ──
     val quote = remember { getDailyQuote(context) }
@@ -115,8 +113,8 @@ fun CheckinScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .background(backgroundColor)
-                    .imePadding()                  // ajusta el contenido cuando el teclado aparece
-                    .verticalScroll(rememberScrollState())   // permite hacer scroll para ver los campos
+                    .imePadding()
+                    .verticalScroll(rememberScrollState())
                     .padding(16.dp),
                 horizontalAlignment = Alignment.Start
             ) {
@@ -303,6 +301,7 @@ fun CheckinScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
+                // Botón Guardar con color sólido y sin degradado
                 Button(
                     onClick = {
                         val sleepHours = sleepHoursText.toDoubleOrNull()
@@ -325,29 +324,18 @@ fun CheckinScreen(
                         .shadow(8.dp, RoundedCornerShape(25.dp)),
                     shape = RoundedCornerShape(25.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent
-                    ),
-                    contentPadding = PaddingValues(0.dp)
+                        containerColor = primaryColor,
+                        contentColor = Color.White
+                    )
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                brush = Brush.horizontalGradient(colors = gradientColors),
-                                shape = RoundedCornerShape(25.dp)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Save, contentDescription = null, tint = Color.White)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                "Guardar Check-in",
-                                style = MaterialTheme.typography.titleSmall,
-                                color = Color.White,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Save, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Guardar Check-in",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
 

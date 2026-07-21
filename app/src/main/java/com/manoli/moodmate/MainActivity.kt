@@ -26,6 +26,7 @@ import com.manoli.moodmate.ui.SplashScreen
 import com.manoli.moodmate.ui.LockScreen
 import com.manoli.moodmate.ui.theme.MoodMateTheme
 import com.manoli.moodmate.ui.theme.ThemeManager
+import com.manoli.moodmate.ui.theme.ThemeScheme
 import com.manoli.moodmate.util.scheduleReminderAt
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
@@ -37,7 +38,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var keyguardManager: KeyguardManager
     private lateinit var lockScreenLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
 
-    // Bandera que indica que estamos importando (evita resetear la autenticación)
     var isImporting = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -45,6 +45,14 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("moodmate_prefs", MODE_PRIVATE)
         ThemeManager.isDark = prefs.getBoolean("dark_mode", false)
+
+        // Restaurar esquema de color guardado
+        val schemeName = prefs.getString("theme_scheme", "CLASSIC") ?: "CLASSIC"
+        ThemeManager.currentScheme = try {
+            ThemeScheme.valueOf(schemeName)
+        } catch (e: Exception) {
+            ThemeScheme.CLASSIC
+        }
 
         val onboardingCompleted = prefs.getBoolean("onboarding_completed", false)
         showOnboarding.value = !onboardingCompleted
@@ -71,14 +79,12 @@ class MainActivity : ComponentActivity() {
             override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
                 when (event) {
                     Lifecycle.Event.ON_RESUME -> {
-                        // Si estamos importando, no pedimos autenticación y mantenemos el estado actual
                         if (isImporting) return
                         if (!showSplash.value && !showOnboarding.value && !isAuthenticated.value) {
                             requestAuthentication(useSystemLock, useAppPin)
                         }
                     }
                     Lifecycle.Event.ON_STOP -> {
-                        // Si estamos importando, NO resetear la autenticación
                         if (!isImporting) {
                             isAuthenticated.value = false
                         }
@@ -108,7 +114,6 @@ class MainActivity : ComponentActivity() {
                     }
                     else -> {
                         if (isAuthenticated.value || isImporting) {
-                            // Pasamos las funciones para controlar el estado de importación
                             MoodMateNavHost(
                                 onStartImport = { isImporting = true },
                                 onFinishImport = { isImporting = false }
@@ -135,7 +140,7 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Recordatorio (sin cambios)
+        // Recordatorio
         val reminderEnabled = prefs.getBoolean("reminder_enabled", true)
         if (reminderEnabled) {
             val hour = prefs.getInt("reminder_hour", 20)

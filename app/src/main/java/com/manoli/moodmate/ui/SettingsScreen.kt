@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -30,6 +31,7 @@ import androidx.core.content.FileProvider
 import androidx.work.WorkManager
 import com.manoli.moodmate.service.StorageService
 import com.manoli.moodmate.ui.theme.ThemeManager
+import com.manoli.moodmate.ui.theme.ThemeScheme
 import com.manoli.moodmate.util.scheduleReminderAt
 import java.io.File
 
@@ -68,12 +70,11 @@ fun SettingsScreen(
         }
     }
 
-    // ── Launcher de importación (con manejo completo) ──
+    // ── Launcher de importación ──
     val openFileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) {
-            // Usuario canceló, finalizamos la importación
             onFinishImport()
             return@rememberLauncherForActivityResult
         }
@@ -96,7 +97,6 @@ fun SettingsScreen(
         } catch (e: Exception) {
             showErrorDialog(context, "Error al restaurar: ${e.message}")
         } finally {
-            // Tanto en éxito como en error, finalizamos la importación
             onFinishImport()
         }
     }
@@ -157,7 +157,6 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     showImportDialog = false
-                    // Indicar que se inicia la importación (no se perderá autenticación)
                     onStartImport()
                     openFileLauncher.launch(arrayOf("application/json"))
                 }) { Text("Importar") }
@@ -242,6 +241,7 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            // ── Sección Apariencia (con esquemas de color) ──
             SectionCard(title = "Apariencia") {
                 SettingSwitch(
                     title = "Modo oscuro",
@@ -251,6 +251,36 @@ fun SettingsScreen(
                         prefs.edit().putBoolean("dark_mode", newValue).apply()
                     }
                 )
+
+                Spacer(modifier = Modifier.height(16.dp))
+                Text("Esquema de color", style = MaterialTheme.typography.titleSmall)
+                Spacer(modifier = Modifier.height(8.dp))
+                val scrollState = rememberScrollState()
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(scrollState)
+                ) {
+                    val schemes = listOf(
+                        ThemeScheme.CLASSIC to "Clásico",
+                        ThemeScheme.NATURE to "Naturaleza",
+                        ThemeScheme.OCEAN to "Océano",
+                        ThemeScheme.LAVENDER to "Lavanda",
+                        ThemeScheme.SUNSET to "Atardecer",
+                        ThemeScheme.CARBON to "Carbón"
+                    )
+                    schemes.forEach { (scheme, name) ->
+                        FilterChip(
+                            selected = ThemeManager.currentScheme == scheme,
+                            onClick = {
+                                ThemeManager.currentScheme = scheme
+                                prefs.edit().putString("theme_scheme", scheme.name).apply()
+                            },
+                            label = { Text(name) }
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -349,7 +379,7 @@ fun SettingsScreen(
     }
 }
 
-// ── Exportación: guarda en filesDir y comparte con FileProvider ──
+// ── Funciones auxiliares ──
 fun exportBackup(context: Context, storage: StorageService, prefs: SharedPreferences) {
     try {
         val json = storage.backupToJson(prefs)
@@ -374,7 +404,6 @@ fun exportBackup(context: Context, storage: StorageService, prefs: SharedPrefere
     }
 }
 
-// ── Función para mostrar un diálogo de error ──
 fun showErrorDialog(context: Context, message: String) {
     (context as? Activity)?.runOnUiThread {
         android.app.AlertDialog.Builder(context)
@@ -385,7 +414,6 @@ fun showErrorDialog(context: Context, message: String) {
     }
 }
 
-// ── Componentes auxiliares ──
 @Composable
 fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(
