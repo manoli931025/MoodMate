@@ -36,6 +36,8 @@ import com.manoli.moodmate.service.StorageService
 import kotlinx.coroutines.delay
 import java.util.Date
 import java.util.UUID
+import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Star
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,7 +45,8 @@ fun CheckinScreen(
     onNavigateToHistory: () -> Unit = {},
     onNavigateToStats: () -> Unit = {},
     onNavigateToSettings: () -> Unit = {},
-    onNavigateToExercises: () -> Unit = {}
+    onNavigateToExercises: () -> Unit = {},
+    onNavigateToAchievements: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val storage = StorageService(context)
@@ -84,6 +87,9 @@ fun CheckinScreen(
                 TopAppBar(
                     title = { Text("MoodMate", fontWeight = FontWeight.SemiBold) },
                     actions = {
+                        IconButton(onClick = onNavigateToAchievements) {
+                            Icon(Icons.Default.EmojiEvents, contentDescription = "Logros")  // o Icons.Default.Star
+                        }
                         IconButton(onClick = onNavigateToExercises) {
                             Icon(Icons.Default.Favorite, contentDescription = "Ejercicios")
                         }
