@@ -9,7 +9,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -18,6 +23,7 @@ import androidx.work.*
 import com.manoli.moodmate.ui.MoodMateNavHost
 import com.manoli.moodmate.ui.OnboardingScreen
 import com.manoli.moodmate.ui.SplashScreen
+import com.manoli.moodmate.ui.LockScreen
 import com.manoli.moodmate.ui.theme.MoodMateTheme
 import com.manoli.moodmate.ui.theme.ThemeManager
 import com.manoli.moodmate.util.scheduleReminderAt
@@ -31,6 +37,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var keyguardManager: KeyguardManager
     private lateinit var lockScreenLauncher: androidx.activity.result.ActivityResultLauncher<Intent>
 
+    // Bandera que indica que estamos importando (evita resetear la autenticación)
+    var isImporting = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -41,19 +50,20 @@ class MainActivity : ComponentActivity() {
         showOnboarding.value = !onboardingCompleted
 
         val lockEnabled = prefs.getBoolean("lock_enabled", true)
-        if (!lockEnabled) {
-            isAuthenticated.value = true
-        }
+        val lockType = prefs.getString("lock_type", "system") ?: "system"
+        val useAppPin = lockEnabled && lockType == "app_pin"
+        val useSystemLock = lockEnabled && !useAppPin
 
-        keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-
-        lockScreenLauncher = registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-            if (result.resultCode == RESULT_OK) {
-                isAuthenticated.value = true
-            } else {
-                finish()
+        if (useSystemLock) {
+            keyguardManager = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
+            lockScreenLauncher = registerForActivityResult(
+                ActivityResultContracts.StartActivityForResult()
+            ) { result ->
+                if (result.resultCode == RESULT_OK) {
+                    isAuthenticated.value = true
+                } else {
+                    finish()
+                }
             }
         }
 
@@ -61,16 +71,17 @@ class MainActivity : ComponentActivity() {
             override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
                 when (event) {
                     Lifecycle.Event.ON_RESUME -> {
-                        val lockNow = getSharedPreferences("moodmate_prefs", MODE_PRIVATE)
-                            .getBoolean("lock_enabled", true)
-                        if (!lockNow) {
-                            isAuthenticated.value = true
-                        } else if (!showSplash.value && !showOnboarding.value && !isAuthenticated.value) {
-                            launchLockScreen()
+                        // Si estamos importando, no pedimos autenticación y mantenemos el estado actual
+                        if (isImporting) return
+                        if (!showSplash.value && !showOnboarding.value && !isAuthenticated.value) {
+                            requestAuthentication(useSystemLock, useAppPin)
                         }
                     }
                     Lifecycle.Event.ON_STOP -> {
-                        isAuthenticated.value = false
+                        // Si estamos importando, NO resetear la autenticación
+                        if (!isImporting) {
+                            isAuthenticated.value = false
+                        }
                     }
                     else -> {}
                 }
@@ -83,18 +94,8 @@ class MainActivity : ComponentActivity() {
                     showSplash.value -> {
                         SplashScreen(onSplashFinished = {
                             showSplash.value = false
-                            if (showOnboarding.value) {
-                                // mostrar onboarding
-                            } else {
-                                if (!isAuthenticated.value) {
-                                    val lockNow = getSharedPreferences("moodmate_prefs", MODE_PRIVATE)
-                                        .getBoolean("lock_enabled", true)
-                                    if (lockNow) {
-                                        launchLockScreen()
-                                    } else {
-                                        isAuthenticated.value = true
-                                    }
-                                }
+                            if (!showOnboarding.value) {
+                                requestAuthentication(useSystemLock, useAppPin)
                             }
                         })
                     }
@@ -102,40 +103,50 @@ class MainActivity : ComponentActivity() {
                         OnboardingScreen(onFinish = {
                             prefs.edit().putBoolean("onboarding_completed", true).apply()
                             showOnboarding.value = false
-                            if (!isAuthenticated.value) {
-                                val lockNow = getSharedPreferences("moodmate_prefs", MODE_PRIVATE)
-                                    .getBoolean("lock_enabled", true)
-                                if (lockNow) {
-                                    launchLockScreen()
-                                } else {
-                                    isAuthenticated.value = true
-                                }
-                            }
+                            requestAuthentication(useSystemLock, useAppPin)
                         })
                     }
                     else -> {
-                        if (isAuthenticated.value) {
-                            MoodMateNavHost()
+                        if (isAuthenticated.value || isImporting) {
+                            // Pasamos las funciones para controlar el estado de importación
+                            MoodMateNavHost(
+                                onStartImport = { isImporting = true },
+                                onFinishImport = { isImporting = false }
+                            )
+                        } else if (!lockEnabled) {
+                            MoodMateNavHost(
+                                onStartImport = { isImporting = true },
+                                onFinishImport = { isImporting = false }
+                            )
+                        } else if (useAppPin) {
+                            LockScreen(onAuthenticated = {
+                                isAuthenticated.value = true
+                            })
+                        } else {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Programar recordatorio si está activado
+        // Recordatorio (sin cambios)
         val reminderEnabled = prefs.getBoolean("reminder_enabled", true)
         if (reminderEnabled) {
             val hour = prefs.getInt("reminder_hour", 20)
             val minute = prefs.getInt("reminder_minute", 0)
-
-            // Solicitar permiso de notificación en Android 13+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED
+                ) {
                     requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 0)
                 }
             }
-
-            // Programar el trabajo único con REPLACE para asegurar que se ejecute
             val delay = calculateDelay(hour, minute)
             WorkManager.getInstance(this).enqueueUniqueWork(
                 "daily_reminder",
@@ -164,18 +175,21 @@ class MainActivity : ComponentActivity() {
         return next.timeInMillis - now.timeInMillis
     }
 
-    private fun launchLockScreen() {
-        if (keyguardManager.isKeyguardSecure) {
-            val intent = keyguardManager.createConfirmDeviceCredentialIntent(
-                "Accede a MoodMate", "Usa tu huella o PIN del dispositivo"
-            )
-            if (intent != null) {
-                lockScreenLauncher.launch(intent)
+    private fun requestAuthentication(useSystemLock: Boolean, useAppPin: Boolean) {
+        if (isAuthenticated.value) return
+        if (useSystemLock) {
+            if (::keyguardManager.isInitialized && keyguardManager.isKeyguardSecure) {
+                val intent = keyguardManager.createConfirmDeviceCredentialIntent(
+                    "Accede a MoodMate", "Usa tu huella o PIN del dispositivo"
+                )
+                if (intent != null) {
+                    lockScreenLauncher.launch(intent)
+                } else {
+                    isAuthenticated.value = true
+                }
             } else {
                 isAuthenticated.value = true
             }
-        } else {
-            isAuthenticated.value = true
         }
     }
 }

@@ -6,7 +6,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 
 @Composable
-fun MoodMateNavHost() {
+fun MoodMateNavHost(
+    onStartImport: () -> Unit = {},
+    onFinishImport: () -> Unit = {}
+) {
     val navController = rememberNavController()
 
     NavHost(navController = navController, startDestination = "checkin") {
@@ -30,7 +33,14 @@ fun MoodMateNavHost() {
         composable("settings") {
             SettingsScreen(
                 onBack = { navController.popBackStack() },
-                onNavigateToAbout = { navController.navigate("about") }
+                onNavigateToAbout = { navController.navigate("about") },
+                onImportCompleted = {
+                    navController.navigate("checkin") {
+                        popUpTo("checkin") { inclusive = true }
+                    }
+                },
+                onStartImport = onStartImport,
+                onFinishImport = onFinishImport
             )
         }
         composable("about") {

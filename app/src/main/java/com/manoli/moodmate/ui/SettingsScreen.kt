@@ -1,8 +1,10 @@
 package com.manoli.moodmate.ui
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -12,6 +14,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
@@ -22,16 +26,21 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.work.WorkManager
 import com.manoli.moodmate.service.StorageService
 import com.manoli.moodmate.ui.theme.ThemeManager
 import com.manoli.moodmate.util.scheduleReminderAt
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     onBack: () -> Unit,
-    onNavigateToAbout: () -> Unit = {}
+    onNavigateToAbout: () -> Unit = {},
+    onImportCompleted: () -> Unit = {},
+    onStartImport: () -> Unit = {},
+    onFinishImport: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("moodmate_prefs", Context.MODE_PRIVATE)
@@ -45,7 +54,6 @@ fun SettingsScreen(
     var selectedHour by remember { mutableStateOf(savedHour) }
     var selectedMinute by remember { mutableStateOf(savedMinute) }
 
-    // Permisos de notificación
     val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
     } else {
@@ -57,6 +65,39 @@ fun SettingsScreen(
     ) { granted ->
         if (!granted) {
             Toast.makeText(context, "Necesitas habilitar las notificaciones para recibir recordatorios", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // ── Launcher de importación (con manejo completo) ──
+    val openFileLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) {
+            // Usuario canceló, finalizamos la importación
+            onFinishImport()
+            return@rememberLauncherForActivityResult
+        }
+
+        try {
+            val inputStream = context.contentResolver.openInputStream(uri)
+            val bytes = inputStream?.readBytes()
+            inputStream?.close()
+
+            if (bytes == null || bytes.isEmpty()) {
+                showErrorDialog(context, "El archivo está vacío o no se pudo leer.")
+                onFinishImport()
+                return@rememberLauncherForActivityResult
+            }
+
+            val json = String(bytes, Charsets.UTF_8)
+            val count = storage.restoreFromJson(json, prefs)
+            Toast.makeText(context, "Se restauraron $count entradas. Listo.", Toast.LENGTH_LONG).show()
+            onImportCompleted()
+        } catch (e: Exception) {
+            showErrorDialog(context, "Error al restaurar: ${e.message}")
+        } finally {
+            // Tanto en éxito como en error, finalizamos la importación
+            onFinishImport()
         }
     }
 
@@ -85,8 +126,9 @@ fun SettingsScreen(
     }
 
     var lockEnabled by remember { mutableStateOf(prefs.getBoolean("lock_enabled", true)) }
+    val lockType = prefs.getString("lock_type", "system") ?: "system"
+    var selectedLockType by remember { mutableStateOf(lockType) }
 
-    // Diálogo de reinicio de datos
     var showResetDialog by remember { mutableStateOf(false) }
     if (showResetDialog) {
         AlertDialog(
@@ -97,14 +139,31 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     storage.deleteAllData()
                     prefs.edit().clear().apply()
-                    // Reiniciar la app
                     val intent = context.packageManager.getLaunchIntentForPackage(context.packageName)
                     context.startActivity(intent)
-                    (context as? android.app.Activity)?.finish()
+                    (context as? Activity)?.finish()
                 }) { Text("Sí, eliminar todo") }
             },
+            dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Cancelar") } }
+        )
+    }
+
+    var showImportDialog by remember { mutableStateOf(false) }
+    if (showImportDialog) {
+        AlertDialog(
+            onDismissRequest = { showImportDialog = false },
+            title = { Text("Importar copia de seguridad") },
+            text = { Text("¿Estás seguro? Se reemplazarán todos tus datos actuales por los del archivo de respaldo.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showImportDialog = false
+                    // Indicar que se inicia la importación (no se perderá autenticación)
+                    onStartImport()
+                    openFileLauncher.launch(arrayOf("application/json"))
+                }) { Text("Importar") }
+            },
             dismissButton = {
-                TextButton(onClick = { showResetDialog = false }) { Text("Cancelar") }
+                TextButton(onClick = { showImportDialog = false }) { Text("Cancelar") }
             }
         )
     }
@@ -126,8 +185,8 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .padding(16.dp)
+                .verticalScroll(rememberScrollState())
         ) {
-            // Sección: Recordatorio
             SectionCard(title = "Recordatorio diario") {
                 SettingSwitch(
                     title = "Activar recordatorio",
@@ -151,9 +210,7 @@ fun SettingsScreen(
                     onClick = { if (reminderEnabled) showTimePicker = true },
                     enabled = reminderEnabled
                 )
-
                 Spacer(modifier = Modifier.height(8.dp))
-
                 Button(
                     onClick = {
                         if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -165,9 +222,7 @@ fun SettingsScreen(
                     },
                     modifier = Modifier.fillMaxWidth(),
                     enabled = reminderEnabled
-                ) {
-                    Text("Probar ahora")
-                }
+                ) { Text("Probar ahora") }
 
                 if (!hasNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     Spacer(modifier = Modifier.height(4.dp))
@@ -187,7 +242,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sección: Apariencia
             SectionCard(title = "Apariencia") {
                 SettingSwitch(
                     title = "Modo oscuro",
@@ -201,7 +255,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sección: Seguridad
             SectionCard(title = "Seguridad") {
                 SettingSwitch(
                     title = "Bloquear acceso",
@@ -211,12 +264,66 @@ fun SettingsScreen(
                         prefs.edit().putBoolean("lock_enabled", newValue).apply()
                     }
                 )
+
+                if (lockEnabled) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                selectedLockType = if (selectedLockType == "app_pin") "system" else "app_pin"
+                                prefs.edit().putString("lock_type", selectedLockType).apply()
+                                if (selectedLockType == "app_pin") {
+                                    prefs.edit().putBoolean("lock_enabled", true).apply()
+                                }
+                                Toast.makeText(
+                                    context,
+                                    "Cambio realizado. Vuelve a abrir la app para aplicar.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Tipo de bloqueo")
+                        Text(
+                            text = if (selectedLockType == "app_pin") "PIN de la app" else "Sistema",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+
+                    if (selectedLockType == "app_pin") {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = {
+                                prefs.edit().remove("pin_hash").apply()
+                                prefs.edit().putString("lock_type", "app_pin").apply()
+                                Toast.makeText(
+                                    context,
+                                    "La próxima vez que abras la app podrás crear un nuevo PIN.",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Cambiar PIN") }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Sección: Datos
             SectionCard(title = "Datos") {
+                SettingRow(
+                    title = "Exportar copia de seguridad",
+                    subtitle = "📤",
+                    onClick = { exportBackup(context, storage, prefs) }
+                )
+                SettingRow(
+                    title = "Importar copia de seguridad",
+                    subtitle = "📥",
+                    onClick = { showImportDialog = true }
+                )
                 SettingRow(
                     title = "Reiniciar bienvenida",
                     subtitle = "↺",
@@ -236,11 +343,49 @@ fun SettingsScreen(
                     onClick = { showResetDialog = true }
                 )
             }
+
+            Spacer(modifier = Modifier.height(32.dp))
         }
     }
 }
 
-// ── Componentes auxiliares ─────────────────────────────
+// ── Exportación: guarda en filesDir y comparte con FileProvider ──
+fun exportBackup(context: Context, storage: StorageService, prefs: SharedPreferences) {
+    try {
+        val json = storage.backupToJson(prefs)
+        val backupDir = File(context.filesDir, "backups")
+        if (!backupDir.exists()) backupDir.mkdirs()
+        val file = File(backupDir, "MoodMate_backup.json")
+        file.writeText(json)
+
+        val uri = FileProvider.getUriForFile(
+            context,
+            "${context.packageName}.fileprovider",
+            file
+        )
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "application/json"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, "Exportar copia de seguridad"))
+    } catch (e: Exception) {
+        Toast.makeText(context, "Error al exportar: ${e.message}", Toast.LENGTH_LONG).show()
+    }
+}
+
+// ── Función para mostrar un diálogo de error ──
+fun showErrorDialog(context: Context, message: String) {
+    (context as? Activity)?.runOnUiThread {
+        android.app.AlertDialog.Builder(context)
+            .setTitle("Error")
+            .setMessage(message)
+            .setPositiveButton("Aceptar", null)
+            .show()
+    }
+}
+
+// ── Componentes auxiliares ──
 @Composable
 fun SectionCard(title: String, content: @Composable () -> Unit) {
     Card(

@@ -6,7 +6,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -39,25 +38,21 @@ fun StatsScreen(onBack: () -> Unit) {
     var selectedPeriod by remember { mutableStateOf(7) }
     val entries = remember(selectedPeriod) { storage.getEntriesLastDays(selectedPeriod) }
 
-    val moodValues = entries.map { entry ->
-        when (entry.mood) {
-            Mood.GREAT -> 5
-            Mood.GOOD -> 4
-            Mood.NEUTRAL -> 3
-            Mood.LOW -> 2
-            Mood.AWFUL -> 1
-        }
-    }
+    val moodValues = entries.map { moodToValue(it.mood).toFloat() }
+    val averageMood = if (moodValues.isNotEmpty()) moodValues.average() else 0.0
 
-    val average = if (moodValues.isNotEmpty()) moodValues.average() else 0.0
-    val trend = when {
+    val energyValues = entries.map { it.energy.toFloat() }
+    val stressValues = entries.map { it.stress.toFloat() }
+    val averageEnergy = if (energyValues.isNotEmpty()) energyValues.average() else 0.0
+    val averageStress = if (stressValues.isNotEmpty()) stressValues.average() else 0.0
+
+    val moodTrend = when {
         entries.size < 2 -> "Sin datos suficientes"
         moodValues.last() > moodValues.first() -> "Mejorando 😊"
         moodValues.last() < moodValues.first() -> "Empeorando 😟"
         else -> "Estable 😐"
     }
 
-    // ── Correlación de sueño ─────────────────────────────
     val sleepInsight = remember(entries) {
         val withSleep = entries.filter { it.sleepHours != null }
         if (withSleep.size < 2) {
@@ -77,10 +72,19 @@ fun StatsScreen(onBack: () -> Unit) {
         }
     }
 
-    // ── Generar insights personalizados ──────────────────
-    val insights = remember(entries) { generateInsights(entries) }
+    val previousPeriodEntries = remember(selectedPeriod) {
+        if (selectedPeriod == 7) {
+            val last14 = storage.getEntriesLastDays(14)
+            val last7Set = entries.map { it.timestamp.time }.toSet()
+            last14.filter { it.timestamp.time !in last7Set }
+        } else emptyList()
+    }
 
-    val scrollState = rememberScrollState()
+    val weeklySummary = remember(entries, previousPeriodEntries) {
+        generateWeeklySummary(entries, previousPeriodEntries)
+    }
+
+    val insights = remember(entries) { generateInsights(entries) }
 
     Scaffold(
         topBar = {
@@ -99,19 +103,16 @@ fun StatsScreen(onBack: () -> Unit) {
             )
         }
     ) { padding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-        ) {
+        // Envolvemos todo en un Box para poder posicionar la pastilla flotante con align
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .verticalScroll(scrollState)
-                    .padding(16.dp),
+                    .padding(16.dp)
+                    .verticalScroll(scrollState),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Selector de período
                 Row {
                     listOf(7 to "1 sem", 14 to "2 sem", 30 to "1 mes").forEach { (days, label) ->
                         FilterChip(
@@ -125,7 +126,40 @@ fun StatsScreen(onBack: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(24.dp))
 
-                // Tarjeta del gráfico
+                // Gráfico de ánimo
+                ChartCard(
+                    title = "Evolución del ánimo",
+                    values = moodValues,
+                    average = averageMood,
+                    lineColor = Color(0xFF4A90D9),
+                    gradientColor = Color(0xFF4A90D9)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Gráfico de energía
+                ChartCard(
+                    title = "Evolución de la energía",
+                    values = energyValues,
+                    average = averageEnergy,
+                    lineColor = Color(0xFF4CAF50),
+                    gradientColor = Color(0xFF4CAF50)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Gráfico de estrés
+                ChartCard(
+                    title = "Evolución del estrés",
+                    values = stressValues,
+                    average = averageStress,
+                    lineColor = Color(0xFFF44336),
+                    gradientColor = Color(0xFFF44336)
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Resumen semanal inteligente
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -133,140 +167,18 @@ fun StatsScreen(onBack: () -> Unit) {
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Text(
-                            "Evolución del ánimo",
+                            "📋 Resumen inteligente",
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        if (entries.isNotEmpty()) {
-                            Canvas(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(220.dp)
-                            ) {
-                                val maxY = 5f
-                                val minY = 1f
-                                val points = moodValues.mapIndexed { index, value ->
-                                    Offset(
-                                        x = index.toFloat() / (moodValues.size - 1).coerceAtLeast(1) * size.width,
-                                        y = size.height - ((value - minY) / (maxY - minY)) * size.height
-                                    )
-                                }
-
-                                // Relleno degradado
-                                if (points.size > 1) {
-                                    val fillPath = Path().apply {
-                                        moveTo(points.first().x, size.height)
-                                        for (i in points.indices) {
-                                            if (i == 0) {
-                                                lineTo(points[i].x, points[i].y)
-                                            } else {
-                                                val p0 = points[i - 1]
-                                                val p1 = points[i]
-                                                val cx = (p0.x + p1.x) / 2
-                                                cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
-                                            }
-                                        }
-                                        lineTo(points.last().x, size.height)
-                                        close()
-                                    }
-                                    drawPath(
-                                        path = fillPath,
-                                        brush = Brush.verticalGradient(
-                                            colors = listOf(
-                                                Color(0xFF4A90D9).copy(alpha = 0.3f),
-                                                Color(0xFF4A90D9).copy(alpha = 0.05f)
-                                            )
-                                        )
-                                    )
-                                }
-
-                                // Línea suave
-                                if (points.size > 1) {
-                                    val linePath = Path().apply {
-                                        moveTo(points.first().x, points.first().y)
-                                        for (i in 1 until points.size) {
-                                            val p0 = points[i - 1]
-                                            val p1 = points[i]
-                                            val cx = (p0.x + p1.x) / 2
-                                            cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
-                                        }
-                                    }
-                                    drawPath(
-                                        path = linePath,
-                                        color = Color(0xFF4A90D9),
-                                        style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-                                    )
-                                }
-
-                                // Puntos
-                                points.forEach { point ->
-                                    drawCircle(
-                                        color = Color.White,
-                                        radius = 6f,
-                                        center = point
-                                    )
-                                    drawCircle(
-                                        color = Color(0xFF4A90D9),
-                                        radius = 4f,
-                                        center = point
-                                    )
-                                }
-
-                                // Línea de promedio
-                                val avgY = size.height - ((average.toFloat() - minY) / (maxY - minY)) * size.height
-                                drawLine(
-                                    color = Color(0xFFFF9800).copy(alpha = 0.7f),
-                                    start = Offset(0f, avgY),
-                                    end = Offset(size.width, avgY),
-                                    strokeWidth = 2f,
-                                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Leyenda
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceEvenly
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .background(Color(0xFF4A90D9), shape = MaterialTheme.shapes.extraSmall)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Ánimo", style = MaterialTheme.typography.labelSmall)
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(12.dp)
-                                            .background(Color(0xFFFF9800).copy(alpha = 0.7f), shape = MaterialTheme.shapes.extraSmall)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Promedio", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(200.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("No hay datos para el período seleccionado.")
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(weeklySummary)
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tarjeta de resumen
+                // Resumen de promedios
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -283,8 +195,8 @@ fun StatsScreen(onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            Text("Promedio:")
-                            Text("${"%.1f".format(average)} / 5.0", fontWeight = FontWeight.Medium)
+                            Text("Promedio ánimo:")
+                            Text("${"%.1f".format(averageMood)} / 5.0", fontWeight = FontWeight.Medium)
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         Row(
@@ -292,14 +204,13 @@ fun StatsScreen(onBack: () -> Unit) {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text("Tendencia:")
-                            Text(trend, fontWeight = FontWeight.Medium)
+                            Text(moodTrend, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Tarjeta de correlación de sueño
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
@@ -316,7 +227,25 @@ fun StatsScreen(onBack: () -> Unit) {
                     }
                 }
 
-                // ── Tarjeta "Para ti" ──────────────────────────
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        "Desliza hacia abajo para ver más",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+                    )
+                    Icon(
+                        Icons.Default.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
                 if (insights.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Card(
@@ -345,17 +274,16 @@ fun StatsScreen(onBack: () -> Unit) {
                     }
                 }
 
-                // Dejamos un espacio extra al final para que no quede pegado al borde
                 Spacer(modifier = Modifier.height(32.dp))
             }
 
-            // ── Indicador flotante de scroll ─────────────────
+            // Pastilla flotante (si hay contenido por deslizar)
             if (scrollState.canScrollForward) {
                 Surface(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.BottomCenter)  // ahora sí está dentro de BoxScope
                         .padding(16.dp),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
                     shadowElevation = 8.dp
                 ) {
@@ -382,36 +310,181 @@ fun StatsScreen(onBack: () -> Unit) {
     }
 }
 
-// ── Función para generar sugerencias ─────────────────────
+@Composable
+fun ChartCard(
+    title: String,
+    values: List<Float>,
+    average: Double,
+    lineColor: Color,
+    gradientColor: Color
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+
+            if (values.isNotEmpty()) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp)
+                ) {
+                    val maxY = 10f
+                    val minY = 1f
+                    val points = values.mapIndexed { index, value ->
+                        Offset(
+                            x = index.toFloat() / (values.size - 1).coerceAtLeast(1) * size.width,
+                            y = size.height - ((value - minY) / (maxY - minY)) * size.height
+                        )
+                    }
+
+                    if (points.size > 1) {
+                        val fillPath = Path().apply {
+                            moveTo(points.first().x, size.height)
+                            for (i in points.indices) {
+                                if (i == 0) lineTo(points[i].x, points[i].y)
+                                else {
+                                    val p0 = points[i - 1]; val p1 = points[i]
+                                    val cx = (p0.x + p1.x) / 2
+                                    cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                                }
+                            }
+                            lineTo(points.last().x, size.height)
+                            close()
+                        }
+                        drawPath(
+                            path = fillPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    gradientColor.copy(alpha = 0.25f),
+                                    gradientColor.copy(alpha = 0.05f)
+                                )
+                            )
+                        )
+                    }
+
+                    if (points.size > 1) {
+                        val linePath = Path().apply {
+                            moveTo(points.first().x, points.first().y)
+                            for (i in 1 until points.size) {
+                                val p0 = points[i - 1]; val p1 = points[i]
+                                val cx = (p0.x + p1.x) / 2
+                                cubicTo(cx, p0.y, cx, p1.y, p1.x, p1.y)
+                            }
+                        }
+                        drawPath(
+                            path = linePath,
+                            color = lineColor,
+                            style = Stroke(width = 3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                        )
+                    }
+
+                    points.forEach { point ->
+                        drawCircle(color = Color.White, radius = 5f, center = point)
+                        drawCircle(color = lineColor, radius = 3.5f, center = point)
+                    }
+
+                    val avgY = size.height - ((average.toFloat() - minY) / (maxY - minY)) * size.height
+                    drawLine(
+                        color = Color(0xFFFF9800).copy(alpha = 0.7f),
+                        start = Offset(0f, avgY),
+                        end = Offset(size.width, avgY),
+                        strokeWidth = 2f,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 10f))
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Text(
+                        "Promedio: ${"%.1f".format(average)} / 10",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(100.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Sin datos")
+                }
+            }
+        }
+    }
+}
+
+fun generateWeeklySummary(currentEntries: List<Entry>, previousEntries: List<Entry>): String {
+    if (currentEntries.isEmpty()) return "Registra datos para obtener un resumen."
+
+    val avgMood = currentEntries.map { moodToValue(it.mood) }.average()
+    val avgEnergy = currentEntries.map { it.energy }.average()
+    val avgStress = currentEntries.map { it.stress }.average()
+    val avgSleep = currentEntries.filter { it.sleepHours != null }.map { it.sleepHours!! }.average()
+
+    val sb = StringBuilder()
+    sb.append("En los últimos 7 días, tu ánimo promedio fue de ${"%.1f".format(avgMood)}/5.0. ")
+    sb.append("Tu energía media fue de ${"%.1f".format(avgEnergy)}/10 y el estrés de ${"%.1f".format(avgStress)}/10. ")
+
+    if (avgSleep.isNaN()) {
+        sb.append("No registraste horas de sueño; añadirlas ayuda a encontrar correlaciones. ")
+    } else {
+        sb.append("Dormiste en promedio ${"%.1f".format(avgSleep)} horas. ")
+    }
+
+    if (previousEntries.isNotEmpty()) {
+        val prevAvgMood = previousEntries.map { moodToValue(it.mood) }.average()
+        val prevAvgEnergy = previousEntries.map { it.energy }.average()
+        val prevAvgStress = previousEntries.map { it.stress }.average()
+
+        sb.append("\n\nComparado con la semana anterior: ")
+        if (avgMood > prevAvgMood) sb.append("tu ánimo mejoró (${"%.1f".format(prevAvgMood)} → ${"%.1f".format(avgMood)}). ")
+        else if (avgMood < prevAvgMood) sb.append("tu ánimo bajó (${"%.1f".format(prevAvgMood)} → ${"%.1f".format(avgMood)}). ")
+        else sb.append("tu ánimo se mantuvo igual. ")
+
+        if (avgEnergy > prevAvgEnergy) sb.append("Tu energía aumentó. ")
+        else if (avgEnergy < prevAvgEnergy) sb.append("Tu energía disminuyó. ")
+        else sb.append("Tu energía no cambió. ")
+
+        if (avgStress > prevAvgStress) sb.append("El estrés subió. ")
+        else if (avgStress < prevAvgStress) sb.append("El estrés bajó. ")
+        else sb.append("El estrés se mantuvo. ")
+    }
+
+    return sb.toString()
+}
+
 fun generateInsights(entries: List<Entry>): List<String> {
     if (entries.size < 3) return listOf("Registra al menos 3 días para recibir consejos personalizados.")
 
     val insights = mutableListOf<String>()
-
-    // Estrés alto
     val avgStress = entries.map { it.stress }.average()
     if (avgStress > 7.0) {
         insights.add("Tu estrés ha sido alto (promedio ${"%.1f".format(avgStress)}/10). Prueba el ejercicio de respiración 4-7-8 en la sección Ejercicios.")
     }
-
-    // Ánimo bajo
     val lowMoodDays = entries.count { it.mood == Mood.LOW || it.mood == Mood.AWFUL }
     if (lowMoodDays >= 3) {
         insights.add("Has tenido varios días con ánimo bajo. Escribir en un diario de gratitud puede ayudarte a cambiar la perspectiva.")
     }
-
-    // Sueño insuficiente recurrente
     val lowSleepDays = entries.count { it.sleepHours != null && it.sleepHours!! < 6.0 }
     if (lowSleepDays >= 3) {
         insights.add("Has dormido menos de 6 horas varios días. Intenta establecer una rutina de sueño más constante.")
     }
-
-    // Recordatorio de ejercicios
     if (entries.none { it.noteText?.contains("ejercicio", true) == true }) {
         insights.add("¿Hace cuánto no haces un ejercicio de estiramiento? ¡Tu cuerpo te lo agradecerá!")
     }
-
-    // Felicitación si mejora
     val first = moodToValue(entries.first().mood)
     val last = moodToValue(entries.last().mood)
     if (last > first) {
@@ -419,16 +492,12 @@ fun generateInsights(entries: List<Entry>): List<String> {
     } else if (last < first) {
         insights.add("Parece que tu ánimo está bajando. No te preocupes, es normal tener altibajos. Cuida tu descanso y habla con alguien si lo necesitas.")
     }
-
-    // Si no se generó ninguna, un mensaje por defecto
     if (insights.isEmpty()) {
         insights.add("Sigue registrando tus estados de ánimo y sueño para obtener consejos más personalizados.")
     }
-
     return insights
 }
 
-// ── Funciones auxiliares ─────────────────────────────────
 fun moodToValue(mood: Mood): Int = when (mood) {
     Mood.GREAT -> 5
     Mood.GOOD -> 4
