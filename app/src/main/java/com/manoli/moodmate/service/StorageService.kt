@@ -5,18 +5,22 @@ import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.manoli.moodmate.model.Entry
+import com.manoli.moodmate.model.JournalEntry
+import com.manoli.moodmate.model.MedicationEntry
 import com.manoli.moodmate.model.Mood
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
-import com.manoli.moodmate.model.MedicationEntry
 
 class StorageService(private val context: Context) {
     private val gson = Gson()
     private val fileName = "entries.json"
+    private val medicationFileName = "medication.json"
+    private val journalFileName = "journal.json"
 
+    // ── Entradas de ánimo (check‑in) ──
     fun loadEntries(): MutableList<Entry> {
         val file = File(context.filesDir, fileName)
         if (!file.exists()) return mutableListOf()
@@ -84,14 +88,14 @@ class StorageService(private val context: Context) {
     }
 
     fun deleteAllData() {
-        val file = File(context.filesDir, fileName)
-        if (file.exists()) file.delete()
+        File(context.filesDir, fileName).delete()
+        File(context.filesDir, medicationFileName).delete()
+        File(context.filesDir, journalFileName).delete()
     }
 
     fun exportToCsv(): String {
         val entries = loadEntries()
         if (entries.isEmpty()) return "Sin datos"
-
         val sb = StringBuilder()
         sb.appendLine("Fecha,Ánimo,Energía,Estrés,Nota,Sueño,Horas sueño")
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
@@ -123,7 +127,7 @@ class StorageService(private val context: Context) {
             entry.noteText?.let { entryJson.put("noteText", it) }
             entry.voiceNotePath?.let { entryJson.put("voiceNotePath", it) }
             entry.sleepHours?.let { entryJson.put("sleepHours", it) }
-            entry.dreamText?.let { entryJson.put("dreamText", it) }   // <-- nuevo
+            entry.dreamText?.let { entryJson.put("dreamText", it) }
             entriesArray.put(entryJson)
         }
         root.put("entries", entriesArray)
@@ -158,7 +162,7 @@ class StorageService(private val context: Context) {
                 noteText = entryJson.optString("noteText", null),
                 voiceNotePath = entryJson.optString("voiceNotePath", null),
                 sleepHours = if (entryJson.has("sleepHours")) entryJson.getDouble("sleepHours") else null,
-                dreamText = entryJson.optString("dreamText", null)  // <-- nuevo
+                dreamText = entryJson.optString("dreamText", null)
             )
             restoredEntries.add(entry)
         }
@@ -177,8 +181,7 @@ class StorageService(private val context: Context) {
         return restoredEntries.size
     }
 
-    private val medicationFileName = "medication.json"
-
+    // ── Medicación / Terapia ──
     fun loadMedicationEntries(): MutableList<MedicationEntry> {
         val file = File(context.filesDir, medicationFileName)
         if (!file.exists()) return mutableListOf()
@@ -198,11 +201,11 @@ class StorageService(private val context: Context) {
         entries.add(entry)
         saveMedicationEntries(entries)
     }
-    
+
     fun deleteMedicationEntry(id: String) {
-    val entries = loadMedicationEntries()
-    entries.removeAll { it.id == id }
-    saveMedicationEntries(entries)
+        val entries = loadMedicationEntries()
+        entries.removeAll { it.id == id }
+        saveMedicationEntries(entries)
     }
 
     fun updateMedicationEntry(updated: MedicationEntry) {
@@ -211,6 +214,42 @@ class StorageService(private val context: Context) {
         if (index != -1) {
             entries[index] = updated
             saveMedicationEntries(entries)
+        }
+    }
+
+    // ── Diario personal ──
+    fun loadJournalEntries(): MutableList<JournalEntry> {
+        val file = File(context.filesDir, journalFileName)
+        if (!file.exists()) return mutableListOf()
+        val json = file.readText()
+        val type = object : TypeToken<List<JournalEntry>>() {}.type
+        return gson.fromJson(json, type)
+    }
+
+    fun saveJournalEntries(entries: List<JournalEntry>) {
+        val file = File(context.filesDir, journalFileName)
+        val json = gson.toJson(entries)
+        file.writeText(json)
+    }
+
+    fun addJournalEntry(entry: JournalEntry) {
+        val entries = loadJournalEntries()
+        entries.add(entry)
+        saveJournalEntries(entries)
+    }
+
+    fun deleteJournalEntry(id: String) {
+        val entries = loadJournalEntries()
+        entries.removeAll { it.id == id }
+        saveJournalEntries(entries)
+    }
+
+    fun updateJournalEntry(updated: JournalEntry) {
+        val entries = loadJournalEntries()
+        val index = entries.indexOfFirst { it.id == updated.id }
+        if (index != -1) {
+            entries[index] = updated
+            saveJournalEntries(entries)
         }
     }
 }

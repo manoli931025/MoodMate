@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.manoli.moodmate.util.AchievementUtils
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -116,6 +117,9 @@ fun ExercisesScreen(onBack: () -> Unit) {
                             val newStreak = if (lastCompletedDate == yesterday) streak + 1 else 1
                             prefs.edit().putInt("exercise_streak", newStreak).apply()
                             streak = newStreak
+
+                            // ★ Notificar logros ★
+                            AchievementUtils.checkAndNotify(context)
                         }
                     )
                 }

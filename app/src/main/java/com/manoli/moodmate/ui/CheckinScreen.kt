@@ -32,6 +32,7 @@ import com.manoli.moodmate.R
 import com.manoli.moodmate.model.Entry
 import com.manoli.moodmate.model.Mood
 import com.manoli.moodmate.service.StorageService
+import com.manoli.moodmate.util.AchievementUtils
 import com.manoli.moodmate.widget.MoodMateWidgetProvider
 import kotlinx.coroutines.delay
 import java.io.BufferedReader
@@ -48,7 +49,8 @@ fun CheckinScreen(
     onNavigateToSettings: () -> Unit = {},
     onNavigateToExercises: () -> Unit = {},
     onNavigateToAchievements: () -> Unit = {},
-    onNavigateToMedication: () -> Unit = {}
+    onNavigateToMedication: () -> Unit = {},
+    onNavigateToJournal: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val storage = StorageService(context)
@@ -87,6 +89,9 @@ fun CheckinScreen(
                 TopAppBar(
                     title = { Text("MoodMate", fontWeight = FontWeight.SemiBold) },
                     actions = {
+                        IconButton(onClick = onNavigateToJournal) {
+                            Icon(Icons.Default.MenuBook, contentDescription = "Diario")
+                        }
                         IconButton(onClick = onNavigateToMedication) {
                             Icon(Icons.Default.Medication, contentDescription = "Seguimiento")
                         }
@@ -235,6 +240,9 @@ fun CheckinScreen(
                             val widgetIds = widgetManager.getAppWidgetIds(ComponentName(context, MoodMateWidgetProvider::class.java))
                             if (widgetIds.isNotEmpty()) MoodMateWidgetProvider.updateWidget(context, widgetManager, widgetIds[0])
                         } catch (_: Exception) {}
+
+                        // ★ Notificar logros ★
+                        AchievementUtils.checkAndNotify(context)
 
                         Toast.makeText(context, "Check-in guardado", Toast.LENGTH_SHORT).show()
                         showSuccess = true

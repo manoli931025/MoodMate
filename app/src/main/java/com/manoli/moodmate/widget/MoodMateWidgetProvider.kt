@@ -27,8 +27,9 @@ class MoodMateWidgetProvider : AppWidgetProvider() {
         fun updateWidget(context: Context, appWidgetManager: AppWidgetManager, widgetId: Int) {
             val views = RemoteViews(context.packageName, R.layout.widget_layout)
 
-            // Obtener último check‑in
             val storage = StorageService(context)
+
+            // ── Datos del último check‑in ──
             val entries = storage.loadEntries()
             if (entries.isNotEmpty()) {
                 val last = entries.last()
@@ -43,14 +44,12 @@ class MoodMateWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_energy, "⚡ ${last.energy}/10")
                 views.setTextViewText(R.id.widget_stress, "🧘 ${last.stress}/10")
 
-                // Mostrar horas de sueño si existen
                 if (last.sleepHours != null) {
                     views.setTextViewText(R.id.widget_sleep, "💤 ${last.sleepHours}h")
                 } else {
                     views.setTextViewText(R.id.widget_sleep, "")
                 }
 
-                // Mostrar nota truncada si existe
                 if (!last.noteText.isNullOrBlank()) {
                     views.setTextViewText(R.id.widget_note, last.noteText)
                 } else {
@@ -64,7 +63,21 @@ class MoodMateWidgetProvider : AppWidgetProvider() {
                 views.setTextViewText(R.id.widget_note, "")
             }
 
-            // Configurar el clic para abrir la app
+            // ── Última entrada del diario ──
+            val journalEntries = storage.loadJournalEntries()
+            if (journalEntries.isNotEmpty()) {
+                val lastJournal = journalEntries.last()
+                val preview = if (lastJournal.title != null) {
+                    "📖 ${lastJournal.title}"
+                } else {
+                    "📖 ${lastJournal.content.take(40)}${if (lastJournal.content.length > 40) "…" else ""}"
+                }
+                views.setTextViewText(R.id.widget_journal_preview, preview)
+            } else {
+                views.setTextViewText(R.id.widget_journal_preview, "")
+            }
+
+            // ── Clic para abrir la app ──
             val intent = Intent(context, MainActivity::class.java)
             val pendingIntent = PendingIntent.getActivity(
                 context, 0, intent,
