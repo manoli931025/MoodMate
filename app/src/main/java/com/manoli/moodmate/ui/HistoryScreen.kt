@@ -59,7 +59,7 @@ fun HistoryScreen(onBack: () -> Unit) {
         storage.getEntriesForMonth(currentYear, currentMonth)
     }
 
-    // Filtrado usando LocalDate (sin problemas de zona horaria)
+    // Filtrado usando LocalDate para evitar problemas de hora/zona horaria
     val filteredEntries = remember(allEntriesForMonth, filterMood, filterStartDate, filterEndDate) {
         val start = filterStartDate
         val end = filterEndDate
@@ -407,7 +407,7 @@ fun HistoryScreen(onBack: () -> Unit) {
     }
 }
 
-// ── Panel de filtros (CONVERSIÓN CORRECTA USANDO CALENDAR) ──
+// ── Panel de filtros (sin cambios) ──
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FilterPanel(
@@ -424,34 +424,19 @@ fun FilterPanel(
 
     // Valor inicial para el DatePicker: hoy en la zona local
     val todayMillis = remember {
-        val cal = Calendar.getInstance()
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        cal.timeInMillis
+        LocalDate.now().atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
 
     if (showStartDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = filterStartDate?.let { date ->
-                // Convertir LocalDate a milisegundos UTC para el DatePicker
-                date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            } ?: todayMillis
+            initialSelectedDateMillis = filterStartDate?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: todayMillis
         )
         DatePickerDialog(
             onDismissRequest = { showStartDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        // Usar Calendar para extraer la fecha local exacta
-                        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-                        cal.timeInMillis = millis
-                        val localDate = LocalDate.of(
-                            cal.get(Calendar.YEAR),
-                            cal.get(Calendar.MONTH) + 1,
-                            cal.get(Calendar.DAY_OF_MONTH)
-                        )
+                        val localDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
                         onStartDateSelected(localDate)
                     }
                     showStartDatePicker = false
@@ -463,22 +448,14 @@ fun FilterPanel(
 
     if (showEndDatePicker) {
         val datePickerState = rememberDatePickerState(
-            initialSelectedDateMillis = filterEndDate?.let { date ->
-                date.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            } ?: todayMillis
+            initialSelectedDateMillis = filterEndDate?.atStartOfDay(ZoneId.systemDefault())?.toInstant()?.toEpochMilli() ?: todayMillis
         )
         DatePickerDialog(
             onDismissRequest = { showEndDatePicker = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
-                        val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"))
-                        cal.timeInMillis = millis
-                        val localDate = LocalDate.of(
-                            cal.get(Calendar.YEAR),
-                            cal.get(Calendar.MONTH) + 1,
-                            cal.get(Calendar.DAY_OF_MONTH)
-                        )
+                        val localDate = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()).toLocalDate()
                         onEndDateSelected(localDate)
                     }
                     showEndDatePicker = false
@@ -539,7 +516,7 @@ fun FilterPanel(
     }
 }
 
-// ── Tarjeta de entrada ──
+// ── Tarjeta de entrada (con soporte para sueño) ──
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun EntryCard(entry: Entry, onLongClick: () -> Unit = {}) {
@@ -558,6 +535,7 @@ fun EntryCard(entry: Entry, onLongClick: () -> Unit = {}) {
             Text("Energía: ${entry.energy}/10")
             Text("Estrés: ${entry.stress}/10")
             if (!entry.noteText.isNullOrBlank()) Text("Nota: ${entry.noteText}")
+            if (!entry.dreamText.isNullOrBlank()) Text("💭 Sueño: ${entry.dreamText}")   // <-- nuevo
             Text(
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(entry.timestamp),
                 style = MaterialTheme.typography.labelSmall

@@ -19,7 +19,8 @@ fun MoodMateNavHost(
                 onNavigateToStats = { navController.navigate("stats") },
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToExercises = { navController.navigate("exercises") },
-                onNavigateToAchievements = { navController.navigate("achievements") }
+                onNavigateToAchievements = { navController.navigate("achievements") },
+                onNavigateToMedication = { navController.navigate("medication") }
             )
         }
         composable("history") {
@@ -30,6 +31,9 @@ fun MoodMateNavHost(
         }
         composable("exercises") {
             ExercisesScreen(onBack = { navController.popBackStack() })
+        }
+        composable("medication") {
+            MedicationScreen(onBack = { navController.popBackStack() })
         }
         composable("achievements") {
             AchievementsScreen(onBack = { navController.popBackStack() })

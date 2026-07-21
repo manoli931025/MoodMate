@@ -11,7 +11,8 @@ data class Entry(
     val noteText: String? = null,
     val voiceNotePath: String? = null,
     val tags: List<String>? = null,
-    val sleepHours: Double? = null
+    val sleepHours: Double? = null,
+    val dreamText: String? = null          // <-- nuevo campo
 )
 
 enum class Mood {

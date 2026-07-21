@@ -11,6 +11,7 @@ import org.json.JSONObject
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
+import com.manoli.moodmate.model.MedicationEntry
 
 class StorageService(private val context: Context) {
     private val gson = Gson()
@@ -92,7 +93,7 @@ class StorageService(private val context: Context) {
         if (entries.isEmpty()) return "Sin datos"
 
         val sb = StringBuilder()
-        sb.appendLine("Fecha,Ánimo,Energía,Estrés,Nota")
+        sb.appendLine("Fecha,Ánimo,Energía,Estrés,Nota,Sueño,Horas sueño")
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
         for (entry in entries.sortedBy { it.timestamp }) {
             sb.appendLine(
@@ -100,7 +101,9 @@ class StorageService(private val context: Context) {
                 "${entry.mood}," +
                 "${entry.energy}," +
                 "${entry.stress}," +
-                "\"${entry.noteText ?: ""}\""
+                "\"${entry.noteText ?: ""}\"," +
+                "\"${entry.dreamText ?: ""}\"," +
+                "${entry.sleepHours ?: ""}"
             )
         }
         return sb.toString()
@@ -120,6 +123,7 @@ class StorageService(private val context: Context) {
             entry.noteText?.let { entryJson.put("noteText", it) }
             entry.voiceNotePath?.let { entryJson.put("voiceNotePath", it) }
             entry.sleepHours?.let { entryJson.put("sleepHours", it) }
+            entry.dreamText?.let { entryJson.put("dreamText", it) }   // <-- nuevo
             entriesArray.put(entryJson)
         }
         root.put("entries", entriesArray)
@@ -153,7 +157,8 @@ class StorageService(private val context: Context) {
                 stress = entryJson.getInt("stress"),
                 noteText = entryJson.optString("noteText", null),
                 voiceNotePath = entryJson.optString("voiceNotePath", null),
-                sleepHours = if (entryJson.has("sleepHours")) entryJson.getDouble("sleepHours") else null
+                sleepHours = if (entryJson.has("sleepHours")) entryJson.getDouble("sleepHours") else null,
+                dreamText = entryJson.optString("dreamText", null)  // <-- nuevo
             )
             restoredEntries.add(entry)
         }
@@ -170,5 +175,42 @@ class StorageService(private val context: Context) {
         }
         editor.apply()
         return restoredEntries.size
+    }
+
+    private val medicationFileName = "medication.json"
+
+    fun loadMedicationEntries(): MutableList<MedicationEntry> {
+        val file = File(context.filesDir, medicationFileName)
+        if (!file.exists()) return mutableListOf()
+        val json = file.readText()
+        val type = object : TypeToken<List<MedicationEntry>>() {}.type
+        return gson.fromJson(json, type)
+    }
+
+    fun saveMedicationEntries(entries: List<MedicationEntry>) {
+        val file = File(context.filesDir, medicationFileName)
+        val json = gson.toJson(entries)
+        file.writeText(json)
+    }
+
+    fun addMedicationEntry(entry: MedicationEntry) {
+        val entries = loadMedicationEntries()
+        entries.add(entry)
+        saveMedicationEntries(entries)
+    }
+    
+    fun deleteMedicationEntry(id: String) {
+    val entries = loadMedicationEntries()
+    entries.removeAll { it.id == id }
+    saveMedicationEntries(entries)
+    }
+
+    fun updateMedicationEntry(updated: MedicationEntry) {
+        val entries = loadMedicationEntries()
+        val index = entries.indexOfFirst { it.id == updated.id }
+        if (index != -1) {
+            entries[index] = updated
+            saveMedicationEntries(entries)
+        }
     }
 }
